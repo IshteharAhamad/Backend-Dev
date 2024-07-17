@@ -3,6 +3,8 @@ import {ApiResponse} from "../utils/ApiResponse.js"
 import {ApiError} from "../utils/ApiError.js"
 import { User } from "../models/user.model.js"
 import {UploadFile} from "../utils/fileUploader.js"
+import {stringify, parse} from "flatted"
+
 const options={
     httpOnly:true,
     secure:true
@@ -10,13 +12,13 @@ const options={
 const generateAccessAndRefreshToken=async(userId)=>{
     try {
         const user=await User.findById(userId)
-        const AccessToken=user.generateAccessToken()
+        const accessToken=user.generateAccessToken()
         const refreshToken=user.generateRefreshToken()
         
         user.refreshToken=refreshToken
         
         await user.save({validateBeforeSave:false})  // save in database
-        return {refreshToken,AccessToken}
+        return {refreshToken,accessToken}
     } catch (error) {
         throw new ApiError(500, "Something went wrong while generating Refresh Token!")
     }
@@ -99,17 +101,17 @@ const LoginUser=asyncHandler(async(req,res)=>{
     if(!isPasswordValid){
         throw new ApiError(401,"Invalid credentials")
     }
-    const {AccessToken,refreshToken}= await generateAccessAndRefreshToken(user._id)
+    const {accessToken,refreshToken}= await generateAccessAndRefreshToken(user._id)
     // optional db call
     const LoggedIn= await User.findById(user._id).select("-password -refreshToken")
     return res.status(200)
-    .cookie("AccessToken",AccessToken,options)
-    .cookie("RefreshToken",refreshToken,options)
+    .cookie("accessToken",accessToken,options)
+    .cookie("refreshToken",refreshToken,options)
     .json(
         new ApiResponse(200,
             {
                 user:LoggedIn,
-                AccessToken,
+                accessToken,
                 refreshToken
             },
             "User Logged In successfully!"
@@ -150,5 +152,71 @@ const LogoutUser=asyncHandler(async(req,res)=>{
         new ApiResponse(200,{},"User logged Out successfully")
     )
 })
+const ChangePassword=asyncHandler(async(req,res)=>{
+    const{password,newPassword,confirmPassword}=req.body
+    // if(newPassword!==confirmPassword){
+    //     throw new ApiError(400,"Password and confirm password is not matched!")
+    // }
+    const user= await User.findById(req.user._id)
+    const isvalidPassword= await user.isPasswordCorrect(password)
+    if (!isvalidPassword) {
+        throw new ApiError(400, "Current password is invalid!")
+    }
+    user.password=newPassword
+    await user.save({validateBeforeSave:false})
+    return res.status(200).json(new ApiResponse(200,{},"Password changed successfully!"))
+    
+})
+const getCurrentUser=asyncHandler(async(req,res)=>{
+    console.log(req.user._id)
+    const user=await User.findById(req.user._id)
+    return res.status(200).json(new ApiResponse(200,user._id,"User details fetched successfully!"))
+})
+const updateUserDetails=asyncHandler(async(req,res)=>{
+    const {fullName,email}=req.body
+    if(!(fullName || email)){
+        throw new ApiError(400,"All fields are required!")
+    }
+    const coverImageLocalPath=req.file?.path
+    if(!coverImageLocalPath){
+        throw new ApiError(400,"Cover image file is missing!")
+    }
+    const coverImage=await UploadFile(coverImageLocalPath)
+    if(!coverImage.url){
+        throw new ApiError(400,"Failed uploading image!")
+    }
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $set:{
+                fullName,
+                email:email,
+                coverImage:coverImage.url
+            }
+        },
+        {new:true}
+    ).select("-password")
+})
+const updateAvatar=asyncHandler(async(req,res)=>{
+    const avatarLocalPath=req.file?.path
+    if (!avatarLocalPath) {
+        throw new ApiError(400,"Avatar file is missing!")
+    }
+    const avatar=await UploadFile(avatarLocalPath)
+    if(!avatar.url){
+        throw new ApiError(400,"Failed uploadig Avatar")
+    }
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $set:{
+                avatar:avatar.url
+            }
+        },
+        {
+            new:true
+        }
+    ).select("-password")
+})
 
-export {RegisterUser,LoginUser,LogoutUser}
+export {RegisterUser,LoginUser,LogoutUser,ChangePassword,getCurrentUser,updateUserDetails,updateAvatar}
