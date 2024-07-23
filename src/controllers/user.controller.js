@@ -3,7 +3,8 @@ import {ApiResponse} from "../utils/ApiResponse.js"
 import {ApiError} from "../utils/ApiError.js"
 import { User } from "../models/user.model.js"
 import {UploadFile} from "../utils/fileUploader.js"
-import {stringify, parse} from "flatted"
+import res from "express/lib/response.js"
+// import bcrypt from "bcrypt"
 
 const options={
     httpOnly:true,
@@ -153,24 +154,24 @@ const LogoutUser=asyncHandler(async(req,res)=>{
     )
 })
 const ChangePassword=asyncHandler(async(req,res)=>{
-    const{password,newPassword,confirmPassword}=req.body
+    const{password,newPassword}=req.body
     // if(newPassword!==confirmPassword){
     //     throw new ApiError(400,"Password and confirm password is not matched!")
     // }
-    const user= await User.findById(req.user._id)
+    const user= await User.findById(req.user?._id)
     const isvalidPassword= await user.isPasswordCorrect(password)
     if (!isvalidPassword) {
         throw new ApiError(400, "Current password is invalid!")
     }
+    // user.password = await bcrypt.hash(newPassword, 10)
     user.password=newPassword
     await user.save({validateBeforeSave:false})
     return res.status(200).json(new ApiResponse(200,{},"Password changed successfully!"))
     
 })
 const getCurrentUser=asyncHandler(async(req,res)=>{
-    console.log(req.user._id)
-    const user=await User.findById(req.user._id)
-    return res.status(200).json(new ApiResponse(200,user._id,"User details fetched successfully!"))
+    const user=await User.findById(req.user._id).select("-password -refreshToken")
+    return res.status(200).json(new ApiResponse(200,user,"User details fetched successfully!"))
 })
 const updateUserDetails=asyncHandler(async(req,res)=>{
     const {fullName,email}=req.body
@@ -185,17 +186,20 @@ const updateUserDetails=asyncHandler(async(req,res)=>{
     if(!coverImage.url){
         throw new ApiError(400,"Failed uploading image!")
     }
-    await User.findByIdAndUpdate(
+    const user= await User.findByIdAndUpdate(
         req.user._id,
         {
             $set:{
                 fullName,
                 email:email,
-                coverImage:coverImage.url
+                coverImage:coverImage?.url
             }
         },
         {new:true}
     ).select("-password")
+    return res.status(200).json(new ApiResponse(200,user,"Profile updated successfully!"
+
+    ))
 })
 const updateAvatar=asyncHandler(async(req,res)=>{
     const avatarLocalPath=req.file?.path
@@ -206,7 +210,7 @@ const updateAvatar=asyncHandler(async(req,res)=>{
     if(!avatar.url){
         throw new ApiError(400,"Failed uploadig Avatar")
     }
-    await User.findByIdAndUpdate(
+     const user=await User.findByIdAndUpdate(
         req.user._id,
         {
             $set:{
@@ -217,6 +221,15 @@ const updateAvatar=asyncHandler(async(req,res)=>{
             new:true
         }
     ).select("-password")
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(200, user, "Avatar image updated successfully")
+    )
+})
+const DeleteUser=asyncHandler(async(req,res)=>{
+    const user= await User.findByIdAndDelete(req.user._id)
+    return res.status(200).json(new ApiResponse(200,{},"Account deleted successfully!"))
 })
 
-export {RegisterUser,LoginUser,LogoutUser,ChangePassword,getCurrentUser,updateUserDetails,updateAvatar}
+export {RegisterUser,LoginUser,LogoutUser,ChangePassword,getCurrentUser,updateUserDetails,updateAvatar,DeleteUser}
